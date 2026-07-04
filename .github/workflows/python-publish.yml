@@ -1,54 +1,39 @@
-name: Build Termux Keystone DEB
+name: Build Termux Keystone DEB (arm64)
 
-# 設定觸發條件：推送代碼、發布 Release，或是手動觸發 (workflow_dispatch)
 on:
   push:
     branches: [ "master", "main" ]
   workflow_dispatch:
 
 jobs:
-  build-termux:
+  build-termux-arm64:
     runs-on: ubuntu-latest
-    
-    # 透過 Matrix 一次性平行編譯三種常見的手機架構
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - abi: arm64-v8a
-            deb_arch: aarch64
-          - abi: armeabi-v7a
-            deb_arch: arm
-          - abi: x86_64
-            deb_arch: x86_64
 
     steps:
-      # 1. 取得 Keystone 官方最新原始碼 (如果你是放在自己的 fork，可以把 repository 參數刪掉)
       - name: Checkout Keystone Source
         uses: actions/checkout@v4
         with:
           repository: 'keystone-engine/keystone'
           submodules: recursive
 
-      # 2. 安裝必要的編譯工具
       - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build dpkg
 
-      # 3. 透過 Android NDK 進行 CMake 配置與 Ninja 交叉編譯
-      - name: Build and Package DEB for ${{ matrix.deb_arch }}
+      - name: Build and Package DEB for aarch64
         run: |
           VERSION="0.9.2"
+          DEB_ARCH="aarch64"
+          ABI="arm64-v8a"
           TERMUX_PREFIX="/data/data/com.termux/files/usr"
-          BUILD_DIR="build_${{ matrix.deb_arch }}"
-          STAGING_DIR="$(pwd)/termux_deb_staging_${{ matrix.deb_arch }}"
+          BUILD_DIR="build_${DEB_ARCH}"
+          STAGING_DIR="$(pwd)/termux_deb_staging_${DEB_ARCH}"
           
-          echo "=> 正在配置 CMake (${{ matrix.deb_arch }})..."
-          # 使用 GitHub Actions 內建的 ANDROID_NDK_LATEST_HOME 進行交叉編譯
+          echo "=> 正在配置 CMake (${DEB_ARCH})..."
           cmake -S . -B "$BUILD_DIR" -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" \
-            -DANDROID_ABI=${{ matrix.abi }} \
+            -DANDROID_ABI="$ABI" \
             -DANDROID_PLATFORM=android-24 \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=OFF \
@@ -75,23 +60,20 @@ jobs:
           cat <<EOF > "$STAGING_DIR/DEBIAN/control"
           Package: libkeystone-dev
           Version: $VERSION
-          Architecture: ${{ matrix.deb_arch }}
+          Architecture: $DEB_ARCH
           Maintainer: GitHub Actions Builder
           Description: Lightweight multi-architecture assembly framework (Termux Static)
-           Keystone static libraries and headers cross-compiled for Termux.
+           Keystone static libraries and headers cross-compiled for Termux (arm64).
           EOF
 
           echo "=> 打包 DEB..."
-          DEB_FILENAME="libkeystone-dev_${VERSION}_${{ matrix.deb_arch }}.deb"
+          DEB_FILENAME="libkeystone-dev_${VERSION}_${DEB_ARCH}.deb"
+          # 直接打包，不用再 mv 檔案，因為 dpkg-deb 已經會生在當前工作目錄了
           dpkg-deb --build "$STAGING_DIR" "$DEB_FILENAME"
-          
-          # 把檔案搬到 workspace 根目錄方便上傳
-          mv "$DEB_FILENAME" libkeystone-dev_${VERSION}_${{ matrix.deb_arch }}.deb
 
-      # 4. 上傳編譯好的 .deb 檔案到 GitHub Actions Artifacts
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: keystone-termux-deb-${{ matrix.deb_arch }}
+          name: keystone-termux-deb-aarch64
           path: "*.deb"
           retention-days: 7
